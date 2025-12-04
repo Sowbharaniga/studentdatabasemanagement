@@ -1,0 +1,225 @@
+const API_BASE = "http://127.0.0.1:8000";
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Student DB - Admin</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin: 20px; background:#0f172a; color:#e6eef8; }
+    .container { max-width:1000px; margin:0 auto; }
+    h1 { font-size:1.6rem; margin-bottom:8px; }
+    table { width:100%; border-collapse:collapse; margin-top:18px; background:#07102a; box-shadow: 0 6px 20px rgba(0,0,0,0.6); }
+    th, td { padding:10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align:left; }
+    th { text-transform:uppercase; font-size:0.75rem; color:#9fb4d6; }
+    tr:hover td { background: rgba(255,255,255,0.01); }
+    input, button, select { padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.08); background:#0b1220; color:#e6eef8; }
+    .form-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .form-row > * { flex:1 1 180px; }
+    .actions { display:flex; gap:8px; }
+    button.primary { background:#0ea5a3; color:#042022; border:none; font-weight:600; }
+    button.danger { background:#ef4444; color:white; border:none; }
+    .muted { color:#96a6bf; font-size:0.9rem; margin-top:6px; }
+    .center { text-align:center; margin-top:18px; color:#9fb4d6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Student Database — Admin</h1>
+    <div>
+      <form id="studentForm">
+        <div class="form-row">
+          <input id="first_name" name="first_name" placeholder="First name" required />
+          <input id="last_name" name="last_name" placeholder="Last name" required />
+          <input id="email" name="email" placeholder="Email" type="email" required />
+          <input id="dob" name="dob" type="date" />
+          <input id="student_id" type="hidden" />
+        </div>
+        <div style="margin-top:10px; display:flex; gap:8px;">
+          <button type="submit" class="primary" id="saveBtn">Add student</button>
+          <button type="button" id="resetBtn">Reset</button>
+          <div style="flex:1"></div>
+          <button type="button" id="refreshBtn">Refresh list</button>
+        </div>
+      </form>
+      <div class="muted">Use the form to add or edit students. Click Edit in table to load a student for editing.</div>
+    </div>
+
+    <table id="studentsTable" aria-live="polite">
+      <thead>
+        <tr>
+          <th>ID</th><th>First name</th><th>Last name</th><th>Email</th><th>DOB</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+
+    <div class="center" id="status">Loading…</div>
+  </div>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:8000"; // change if your backend runs elsewhere
+
+    const tbody = document.getElementById('tbody');
+    const status = document.getElementById('status');
+    const form = document.getElementById('studentForm');
+    const saveBtn = document.getElementById('saveBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    function formatDate(d) {
+      if (!d) return "";
+      return d;
+    }
+
+    async function fetchStudents() {
+      try {
+        status.textContent = "Loading students...";
+        const res = await fetch(`${API_BASE}/students`);
+        if (!res.ok) throw new Error("Failed to load students");
+        const data = await res.json();
+        renderTable(data);
+        status.textContent = `Loaded ${data.length} students.`;
+      } catch (err) {
+        status.textContent = "Error loading students: " + err.message;
+      }
+    }
+
+    function renderTable(students) {
+      tbody.innerHTML = "";
+      if (!students || students.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#9fb4d6">No students yet</td></tr>`;
+        return;
+      }
+      students.forEach(s => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${s.id}</td>
+          <td>${escapeHtml(s.first_name)}</td>
+          <td>${escapeHtml(s.last_name)}</td>
+          <td>${escapeHtml(s.email)}</td>
+          <td>${s.dob ? escapeHtml(s.dob) : ""}</td>
+          <td class="actions">
+            <button data-id="${s.id}" class="editBtn">Edit</button>
+            <button data-id="${s.id}" class="delBtn danger">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // attach listeners
+      document.querySelectorAll('.editBtn').forEach(b => {
+        b.addEventListener('click', async (e) => {
+          const id = e.target.getAttribute('data-id');
+          await loadStudentForEdit(id);
+        });
+      });
+      document.querySelectorAll('.delBtn').forEach(b => {
+        b.addEventListener('click', async (e) => {
+          const id = e.target.getAttribute('data-id');
+          if (!confirm("Delete student id " + id + " ?")) return;
+          await deleteStudent(id);
+        });
+      });
+    }
+
+    async function loadStudentForEdit(id) {
+      try {
+        const res = await fetch(`${API_BASE}/students/${id}`);
+        if (!res.ok) throw new Error("Student not found");
+        const s = await res.json();
+        document.getElementById('first_name').value = s.first_name;
+        document.getElementById('last_name').value = s.last_name;
+        document.getElementById('email').value = s.email;
+        document.getElementById('dob').value = s.dob ? s.dob : "";
+        document.getElementById('student_id').value = s.id;
+        saveBtn.textContent = "Save changes";
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (err) {
+        alert("Failed to load student: " + err.message);
+      }
+    }
+
+    async function deleteStudent(id) {
+      try {
+        const res = await fetch(`${API_BASE}/students/${id}`, { method: 'DELETE' });
+        if (res.status === 204) {
+          status.textContent = `Deleted student ${id}`;
+          await fetchStudents();
+        } else {
+          const txt = await res.text();
+          throw new Error(txt || "Delete failed");
+        }
+      } catch (err) {
+        alert("Error deleting: " + err.message);
+      }
+    }
+
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const id = document.getElementById('student_id').value;
+      const payload = {
+        first_name: document.getElementById('first_name').value.trim(),
+        last_name: document.getElementById('last_name').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        dob: document.getElementById('dob').value || null
+      };
+
+      try {
+        saveBtn.disabled = true;
+        if (id) {
+          // update
+          const res = await fetch(`${API_BASE}/students/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Update failed');
+          }
+          status.textContent = `Updated student ${id}`;
+        } else {
+          // create
+          const res = await fetch(`${API_BASE}/students`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Create failed');
+          }
+          const created = await res.json();
+          status.textContent = `Created student ${created.id}`;
+        }
+        resetForm();
+        await fetchStudents();
+      } catch (err) {
+        alert("Save error: " + err.message);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+
+    resetBtn.addEventListener('click', resetForm);
+    refreshBtn.addEventListener('click', fetchStudents);
+
+    function resetForm() {
+      form.reset();
+      document.getElementById('student_id').value = "";
+      saveBtn.textContent = "Add student";
+    }
+
+    // small escaping helper
+    function escapeHtml(s) {
+      if (!s) return '';
+      return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+    }
+
+    // initial load
+    fetchStudents();
+  </script>
+</body>
+</html>
